@@ -114,23 +114,48 @@ next.dose <- function(target, d, y, y.obs, n, n.pend, elimi, lambda.e, lambda.d)
 
 
 ### BF-TITE-BOIN =======================
-run.bfboin <- function(target, pT.true, pE.true, w0 = 2 / 3, ncohort, cohortsize,
-                       fixed.cohort = TRUE, accuralrate = 3,
-                       DLTwindow = 1, effwindow = 3,
-                       n.earlystop = 100, n.backfilling = 100, 
-                       bf.type = c("tox", "utility"), bf.extended = FALSE, 
-                       startdose = 1, init.size = 3, titration = FALSE,
-                       pT.saf = 0.6 * target, pT.tox = 1.4 * target, 
-                       pE.low = 0.25, cutoff.eli = 0.95, cutoff.eff = 0.95,
-                       extrasafe = FALSE, offset = 0.05,
-                       boundMTD = FALSE, prior.p = rep(1 / 3, 3),
+run.bfboin <- function(target, 
+                       pT.true, 
+                       pE.true, 
+                       w0 = 2 / 3, 
+                       ncohort, 
+                       cohortsize,
+                       fixed.cohort = TRUE, 
+                       accuralrate = 3,
+                       DLTwindow = 1, 
+                       effwindow = 3,
+                       n.earlystop = 100, 
+                       n.backfilling = 100, 
+                       bf.type = c("tox", "utility"), 
+                       bf.extended = FALSE, 
+                       utility.method = c("mean", "pp"),
+                       startdose = 1, 
+                       init.size = 3, 
+                       titration = FALSE,
+                       pT.saf = 0.6 * target, 
+                       pT.tox = 1.4 * target, 
+                       pE.low = 0.25, 
+                       cutoff.eli = 0.95, 
+                       cutoff.eff = 0.95,
+                       extrasafe = FALSE, 
+                       offset = 0.05,
+                       boundMTD = FALSE, 
+                       prior.p = rep(1 / 3, 3),
                        min.complete = c(tox = 0.51, eff = 0.51),
                        min.MF = c(tox = 0.25, eff = 0),
-                       ntrial = 1000, seed = 6) {
+                       ntrial = 1000, 
+                       seed = 6) {
   
   bf.type <- match.arg(bf.type)
+  utility.method <- match.arg(utility.method)
   
   set.seed(seed)
+  # utility: (no tox, eff), (no tox, no eff), (tox, eff), (tox, no eff)
+  utility_score <- c(100, 100 * w0 / (w0 + 1), 100 / (w0 + 1), 0)
+  lower_u <- utility_score[1] * (1 - pT.tox) * pE.low + utility_score[2] * (1 - pT.tox) * (1 - pE.low) + utility_score[3] * pT.tox * pE.low
+  ub <- lower_u + (100 - lower_u)/2
+  
+  
   if (cohortsize == 1) titration <- FALSE
   lambda_e <- log((1 - pT.saf) / (1 - target)) / log(target * (1 - pT.saf) / (pT.saf * (1 - target)))
   lambda_d <- log((1 - target) / (1 - pT.tox)) / log(pT.tox * (1 - target) / (target * (1 - pT.tox)))
@@ -305,9 +330,18 @@ run.bfboin <- function(target, pT.true, pE.true, w0 = 2 / 3, ncohort, cohortsize
 
       # for n > 0, calculate utility
       uhat <- vector(mode = "numeric", length = ndose)
-      for (dd in which(n > 0)) {
-        uhat[dd] <- phat_eff_exact[1, dd] / phat_eff_exact[2, dd] - w0 * (phat_tox_exact[1, dd] / phat_tox_exact[2, dd])
+      if (utility.method == "mean") {
+        for (dd in which(n > 0)) {
+          uhat[dd] <- phat_eff_exact[1, dd] / phat_eff_exact[2, dd] - w0 * (phat_tox_exact[1, dd] / phat_tox_exact[2, dd])
+        }
+      } else if (utility.method == "pp") {
+        quasi_x <- vector(mode = "numeric", length = ndose)
+        for (dd in which(n > 0)) {
+          quasi_x[dd] <-  (utility_score[3] * phat_eff_exact[1, dd] + utility_score[2] * (n[dd] - phat_tox_exact[1, dd]))/100
+          uhat[dd] <- 1 - pbeta(ub/100, (quasi_x[dd] + 1), (n[dd] - quasi_x[dd] + 1))
+        }
       }
+      
 
       if (this_cosize == cohortsize) {
         for (dd in 1:ndose) {
@@ -571,8 +605,16 @@ run.bfboin <- function(target, pT.true, pE.true, w0 = 2 / 3, ncohort, cohortsize
       if (!bf.extended | all(n_ext == 0)) {
         # end of trial & select OBD
         duration["extended_bf", trial] <- duration["dose_finding", trial]
-        for (dd in Aset_ext) {
-          uhat_final[dd] <- (rowSums(trial_log$y_eff)[dd] / n[dd] - w0 * (rowSums(trial_log$y_tox)[dd] / n[dd])) %>% round(., 6)
+        if (utility.method == "mean") {
+          for (dd in Aset_ext) {
+            uhat_final[dd] <- (rowSums(trial_log$y_eff)[dd] / n[dd] - w0 * (rowSums(trial_log$y_tox)[dd] / n[dd])) %>% round(., 6)
+          }
+        } else if (utility.method == "pp") {
+          quasi_x <- vector(mode = "numeric", length = ndose)
+          for (dd in Aset_ext) {
+            quasi_x[dd] <-  (utility_score[3] * rowSums(trial_log$y_eff)[dd] + utility_score[2] * (n[dd] - rowSums(trial_log$y_tox)[dd]))/100
+            uhat_final[dd] <- (1 - pbeta(ub/100, (quasi_x[dd] + 1), (n[dd] - quasi_x[dd] + 1))) %>% round(., 6)
+          }
         }
         dselect["OBD", trial] <- Aset_ext[which.max(uhat_final[Aset_ext])]
         N_s2[trial, ] <- 0
@@ -585,11 +627,11 @@ run.bfboin <- function(target, pT.true, pE.true, w0 = 2 / 3, ncohort, cohortsize
         duration["extended_bf", trial] <- stage2_endt - arrival_t[1]
         
         # outcome collection
-        ext_label <- ifelse(
-          sum(n_ext) == 1, 
-          which(n_ext > 0), 
-          rep(which(n_ext>0), times = n_ext[n_ext>0]) %>% sample()
-          )
+        if (sum(n_ext) == 1) {
+          ext_label <- which(n_ext > 0)
+        } else {
+          ext_label <- rep(which(n_ext>0), times = n_ext[n_ext>0]) %>% sample()
+        }
          
         ytox_ext <- sapply(seq_along(ext_label), function(rr) {
           replace(numeric(ndose), ext_label[rr], (1 * (DLT_t[ext_label[rr], (seq_len(sum(n_ext)) + sum(n))[rr]] <= DLTwindow)))
@@ -597,8 +639,16 @@ run.bfboin <- function(target, pT.true, pE.true, w0 = 2 / 3, ncohort, cohortsize
         yeff_ext <- sapply(seq_along(ext_label), function(rr) {
           replace(numeric(ndose), ext_label[rr], (1 * (eff_t[ext_label[rr], (seq_len(sum(n_ext)) + sum(n))[rr]] <= effwindow)))
         }) %>% rowSums()
-        for (dd in Aset_ext) {
-          uhat_final[dd] <- ((rowSums(trial_log$y_eff) + yeff_ext)[dd] / (n + n_ext)[dd] - w0 * ((rowSums(trial_log$y_tox) + ytox_ext)[dd] / (n + n_ext)[dd])) %>% round(., 6)
+        if (utility.method == "mean") {
+          for (dd in Aset_ext) {
+            uhat_final[dd] <- ((rowSums(trial_log$y_eff) + yeff_ext)[dd] / (n + n_ext)[dd] - w0 * ((rowSums(trial_log$y_tox) + ytox_ext)[dd] / (n + n_ext)[dd])) %>% round(., 6)
+          }
+        } else if (utility.method == "pp") {
+          quasi_x <- vector(mode = "numeric", length = ndose)
+          for (dd in Aset_ext) {
+            quasi_x[dd] <-  (utility_score[3] * (rowSums(trial_log$y_eff) + yeff_ext)[dd] + utility_score[2] * ((n + n_ext)[dd] -(rowSums(trial_log$y_tox) + ytox_ext)[dd]))/100
+            uhat_final[dd] <- (1 - pbeta(ub/100, (quasi_x[dd] + 1), ((n + n_ext)[dd] - quasi_x[dd] + 1))) %>% round(., 6)
+          }
         }
         dselect["OBD", trial] <- Aset_ext[which.max(uhat_final[Aset_ext])]
         N_s2[trial, ] <- n_ext
@@ -637,17 +687,31 @@ run.bfboin <- function(target, pT.true, pE.true, w0 = 2 / 3, ncohort, cohortsize
 }
 
 
-MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w0 = 2/3, nsimu = 5000) {
+MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w0 = 2/3, nsimu = 5000, seed = 123) {
   ndose <- length(pT.true)
-  ### our method
-  result_tmp <- run.bfboin(
+  
+  ### our method (mean utility)
+  result_ours1 <- run.bfboin(
     target = target, pT.true = pT.true, pE.true = pE.true, w0 = w0,
     ncohort = 10, cohortsize = 3, fixed.cohort = TRUE,
     accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = 3,
     n.earlystop = 12, n.backfilling = 12, bf.type = "utility", bf.extended = TRUE,
-    startdose = 1, init.size = 3, titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
+    utility.method = "mean", startdose = 1, init.size = 3, 
+    titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
     min.complete = c(tox = 0.51, eff = 0.21), min.MF = c(tox = 0.25, eff = 0),
-    ntrial = nsimu, seed = 123
+    ntrial = nsimu, seed = seed
+  )
+  
+  ### our method (utility posterior prob)
+  result_ours2 <- run.bfboin(
+    target = target, pT.true = pT.true, pE.true = pE.true, w0 = w0,
+    ncohort = 10, cohortsize = 3, fixed.cohort = TRUE,
+    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = 3,
+    n.earlystop = 12, n.backfilling = 12, bf.type = "utility", bf.extended = TRUE,
+    utility.method = "pp", startdose = 1, init.size = 3, 
+    titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
+    min.complete = c(tox = 0.51, eff = 0.21), min.MF = c(tox = 0.25, eff = 0),
+    ntrial = nsimu, seed = seed
   )
   
   ### TITE-BOIN-ET
@@ -657,7 +721,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w
     phi = 0.25, delta = 0.50, tau.T = DLTwindow * 30, tau.E = 3 * 30, 
     te.corr = 0, accrual = 30 / accuralrate, gen.enroll.time="exponential", 
     stopping.npts = 12, obd.method = "utility.scoring", 
-    seed.sim = 123, n.sim = nsimu
+    seed.sim = seed, n.sim = nsimu
     )
   
   
@@ -667,15 +731,16 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w
     n.dose = 5, startdose = 1, ncohort = 10, cohortsize = 3, 
     tau.T = DLTwindow, tau.E = 3, te.corr = 0, accrual = accuralrate, 
     gen.enroll.time = "exponential", 
-    stopping.npts = 12, seed.sim = 123, n.sim = nsimu
+    stopping.npts = 12, seed.sim = seed, n.sim = nsimu
   )
   
   # overdose N
-  EN_overdose <- list(ours = rep(-1, 2), bfet = -1, titeet = -1)
+  EN_overdose <- list(ours1 = rep(-1, 2), ours2 = rep(-1, 2), bfet = -1, titeet = -1)
   if (any(pT.true >= target)) {
     maxtol <- which(pT.true>=target) %>% min()
     if (maxtol < ndose) {
-      EN_overdose$ours <- rowSums(result_tmp$npatients[, (maxtol + 1):ndose])
+      EN_overdose$ours1 <- rowSums(result_ours1$npatients[, (maxtol + 1):ndose])
+      EN_overdose$ours2 <- rowSums(result_ours2$npatients[, (maxtol + 1):ndose])
       EN_overdose$bfet <- sum(result_bfet$n.patient[(maxtol + 1):ndose])
       EN_overdose$titeet <- sum(result_titeet$n.patient[(maxtol + 1):ndose])
     }
@@ -689,22 +754,26 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w
   colnames(settings) <- paste("Dose", 1:5)
   
   selection <- rbind(
-    MTD.ours = c(result_tmp$sel_MTD, result_tmp$percentstop),
-    OBD.ours = c(result_tmp$sel_OBD, NA),
+    MTD.ours1 = c(result_ours1$sel_MTD, result_ours1$percentstop),
+    OBD.ours1 = c(result_ours1$sel_OBD, NA),
+    MTD.ours2 = c(result_ours2$sel_MTD, result_ours2$percentstop),
+    OBD.ours2 = c(result_ours2$sel_OBD, NA),
     OBD.titeet = c(result_titeet$prop.select, result_titeet$prop.stop),
     OBD.bfet = c(result_bfet$prop.select, result_bfet$prop.stop)
   ) %>% round(2)
   colnames(selection) <- c(paste("Dose", 1:5), "early.stop")
   
   EN <- rbind(
-    ours = cbind(result_tmp$npatients, result_tmp$totaln[1:2], EN_overdose$ours),
+    ours1 = cbind(result_ours1$npatients, result_ours1$totaln[1:2], EN_overdose$ours1),
+    ours2 = cbind(result_ours2$npatients, result_ours2$totaln[1:2], EN_overdose$ours2),
     titeet = c(result_titeet$n.patient, sum(result_titeet$n.patient), EN_overdose$titeet),
     bfet = c(result_bfet$n.patient, result_bfet$totaln, EN_overdose$bfet)
   )  %>% round(2)
   colnames(EN) <- c(paste("Dose", 1:5), "EN", "EN.Overdose")
   
   duration <- c(
-    ours = result_tmp$duration,
+    ours1 = result_ours1$duration,
+    ours2 = result_ours2$duration,
     titeet = result_titeet$duration/30,
     bfet = result_bfet$duration
   )  %>% round(2)
@@ -738,6 +807,18 @@ all_config <- expand.grid(
   DLT_window = c(1, 3),
   accural_rate = c(3, 1)
 )
+
+
+### to be update
+output_tmp <- MAIN.func(
+  pT.true = pT.true[all_config$true_prob[sc00], ], 
+  pE.true = pE.true[all_config$true_prob[sc00], ], 
+  accuralrate = all_config$accural_rate[sc00], 
+  DLTwindow = all_config$DLT_window[sc00]
+)
+
+
+
 for (ii in 1:nrow(all_config)) {
   output_tmp <- MAIN.func(
     pT.true = pT.true[all_config$true_prob[ii], ], 
