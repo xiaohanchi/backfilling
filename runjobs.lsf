@@ -1,0 +1,31 @@
+#!/bin/bash
+#BSUB -J "backfilling[1-20]"
+#BSUB -W 3:00
+#BSUB -o /rsrch4/scratch/biostatistics/xchi/syn_data/%J_%I.out
+#BSUB -e /rsrch4/scratch/biostatistics/xchi/syn_data/%J_%I.err
+#BSUB -cwd /rsrch4/home/biostatistics/xchi/digital_control/experiments/2025-0706/folder00
+#BSUB -q short 
+#BSUB -n 1 
+#BSUB -M 5
+#BSUB -R rusage[mem=5]
+# #BSUB -N
+# #BSUB -u xchi@mdanderson.org
+
+
+module load miniforge3
+source activate xchi
+module load R/4.3.1
+module load jags/4.3.1
+
+
+echo "LSB_JOBID: " $LSB_JOBID
+echo "LSB_BATCH_JID: " $LSB_BATCH_JID
+echo "LSB_JOBINDEX: " $LSB_JOBINDEX
+
+
+
+cp main.R main_tmp${LSB_JOBINDEX}.R
+perl -pi -e "s/rep00/${LSB_JOBINDEX}/g; s/seed00/1233${LSB_JOBINDEX}/g" main_tmp${LSB_JOBINDEX}.R
+Rscript main_tmp${LSB_JOBINDEX}.R
+
+rm main_tmp${LSB_JOBINDEX}.R

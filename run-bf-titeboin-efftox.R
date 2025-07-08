@@ -4,6 +4,7 @@ library(BOIN)
 library(readr)
 library(boinet)
 library(bfboinet)
+library(filelock)
 # library(TITEgBOIN)
 
 ### Functions =======================
@@ -764,8 +765,10 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w
   colnames(selection) <- c(paste("Dose", 1:5), "early.stop")
   
   EN <- rbind(
-    ours1 = cbind(result_ours1$npatients, result_ours1$totaln[1:2], EN_overdose$ours1),
-    ours2 = cbind(result_ours2$npatients, result_ours2$totaln[1:2], EN_overdose$ours2),
+    ours1 = cbind(result_ours1$npatients, result_ours1$totaln[1:2], EN_overdose$ours1) %>%
+      { rownames(.) <- c("ours1.s1", "ours1.s2"); . },
+    ours2 = cbind(result_ours2$npatients, result_ours2$totaln[1:2], EN_overdose$ours2) %>%
+      { rownames(.) <- c("ours2.s1", "ours2.s2"); . },
     titeet = c(result_titeet$n.patient, sum(result_titeet$n.patient), EN_overdose$titeet),
     bfet = c(result_bfet$n.patient, result_bfet$totaln, EN_overdose$bfet)
   )  %>% round(2)
@@ -803,42 +806,48 @@ pE.true <- rbind(
 )
 
 all_config <- expand.grid(
-  true_prob = 1:nrow(pT.true),
+  Scenarrio = 1:nrow(pT.true),
   DLT_window = c(1, 3),
   accural_rate = c(3, 1)
 )
 
 
-### to be update
-output_tmp <- MAIN.func(
-  pT.true = pT.true[all_config$true_prob[sc00], ], 
-  pE.true = pE.true[all_config$true_prob[sc00], ], 
+output <- MAIN.func(
+  pT.true = pT.true[all_config$Scenarrio[sc00], ], 
+  pE.true = pE.true[all_config$Scenarrio[sc00], ], 
   accuralrate = all_config$accural_rate[sc00], 
-  DLTwindow = all_config$DLT_window[sc00]
+  DLTwindow = all_config$DLT_window[sc00], nsimu = 5000
 )
+output$settings <- cbind(setting.idx = sc00, output$settings) %>% as.data.frame()
+output$selection <- cbind(setting.idx = sc00, output$selection) %>% as.data.frame()
+output$EN <- cbind(setting.idx = sc00, output$EN, duration = output$duration) %>% 
+  as.data.frame()
 
 
 
-for (ii in 1:nrow(all_config)) {
-  output_tmp <- MAIN.func(
-    pT.true = pT.true[all_config$true_prob[ii], ], 
-    pE.true = pE.true[all_config$true_prob[ii], ], 
-    accuralrate = all_config$accural_rate[ii], 
-    DLTwindow = all_config$DLT_window[ii]
-    )
-  output_tmp <- cbind(
-    Scenario = c(all_config$true_prob[ii], rep(NA, 8)), 
-    DLT_window = c(all_config$DLT_window[ii], rep(NA, 8)),
-    accural_rate = c(all_config$accural_rate[ii], rep(NA, 8)),
-    output_tmp
-    )
-  if(ii == 1) {
-    output <- output_tmp
-  } else {
-    output <- rbind(output, NA, output_tmp)
-  }
+resultpath.setting <- "./results/output_settings.csv"
+resultpath.sel <- "./results/output_selection.csv"
+resultpath.EN <- "./results/output_EN.csv"
+
+### write file in a parallel way
+lockfile <- "./results/lockfile.lock"
+lock <- lock(lockfile, timeout = Inf)
+if (!file.exists(resultpath.setting)) {
+  write_excel_csv(output$settings, file = resultpath.setting, append = T, col_names = TRUE)
+} else {
+  write_excel_csv(output$settings, file = resultpath.setting, append = T, col_names = FALSE)
 }
 
-output <- as.data.frame(output)
-write_excel_csv(output, file = "~/Intern/01project/03_results/0701results.csv", 
-                col_names = TRUE, na = "")
+if (!file.exists(resultpath.sel)) {
+  write_excel_csv(output$selection, file = resultpath.sel, append = T, col_names = TRUE, na = "")
+} else {
+  write_excel_csv(output$selection, file = resultpath.sel, append = T, col_names = FALSE, na = "")
+}
+
+if (!file.exists(resultpath.EN)) {
+  write_excel_csv(output$EN, file = resultpath.EN, append = T, col_names = TRUE)
+} else {
+  write_excel_csv(output$EN, file = resultpath.EN, append = T, col_names = FALSE)
+}
+
+unlock(lock)
