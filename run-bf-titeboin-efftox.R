@@ -5,6 +5,7 @@ library(readr)
 library(boinet)
 library(bfboinet)
 library(filelock)
+library(tibble)
 # library(TITEgBOIN)
 
 ### Functions =======================
@@ -728,7 +729,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w
   
   ### BF-BOIN-ET
   result_bfet <- get.oc.backboinet(
-    target_T = target, target_E = 0.5, toxprob = pT.true, effprob = pE.true, 
+    target_T = target, target_E = 0.25, toxprob = pT.true, effprob = pE.true, 
     n.dose = 5, startdose = 1, ncohort = 10, cohortsize = 3, 
     tau.T = DLTwindow, tau.E = 3, te.corr = 0, accrual = accuralrate, 
     gen.enroll.time = "exponential", 
@@ -818,10 +819,15 @@ output <- MAIN.func(
   accuralrate = all_config$accural_rate[sc00], 
   DLTwindow = all_config$DLT_window[sc00], nsimu = 5000
 )
-output$settings <- cbind(setting.idx = sc00, output$settings) %>% as.data.frame()
-output$selection <- cbind(setting.idx = sc00, output$selection) %>% as.data.frame()
+output$settings <- cbind(setting.idx = sc00, output$settings) %>% 
+  as.data.frame() %>% tibble() %>% 
+  mutate(metric = c("True.Tox", "True.Eff", "True.Utility"), .after = 1)
+output$selection <- cbind(setting.idx = sc00, output$selection) %>% 
+  as.data.frame() %>% tibble() %>% 
+  mutate(method = c("MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "OBD.titeet", "OBD.bfet"), .after = 1)
 output$EN <- cbind(setting.idx = sc00, output$EN, duration = output$duration) %>% 
-  as.data.frame()
+  as.data.frame() %>% tibble() %>% 
+  mutate(method = c("ours1.s1", "ours1.s2", "ours2.s1", "ours2.s2", "titeet", "bfet"), .after = 1)
 
 
 
