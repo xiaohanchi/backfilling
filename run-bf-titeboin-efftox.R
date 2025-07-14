@@ -689,8 +689,35 @@ run.bfboin <- function(target,
 }
 
 
-MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w0 = 2/3, nsimu = 5000, seed = 123) {
+MAIN.func <- function(target = 0.25, pT.true, pE.true, 
+                      accuralrate, DLTwindow, effwindow, w0 = 2/3, 
+                      nsimu = 5000, seed = 123) {
   ndose <- length(pT.true)
+  
+  ### our method (no tite)
+  result_ours0 <- run.bfboin(
+    target = target, pT.true = pT.true, pE.true = pE.true, w0 = w0,
+    ncohort = 10, cohortsize = 3, fixed.cohort = TRUE,
+    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = 3,
+    n.earlystop = 12, n.backfilling = 12, bf.type = "utility", bf.extended = TRUE,
+    utility.method = "mean", startdose = 1, init.size = 3, 
+    titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
+    min.complete = c(tox = 1, eff = 1), min.MF = c(tox = 1, eff = 1),
+    ntrial = nsimu, seed = seed
+  )
+  
+  ### BF-BOIN
+  result_bf <- run.bfboin(
+    target = target, pT.true = pT.true, pE.true = pE.true, w0 = w0,
+    ncohort = 10, cohortsize = 3, fixed.cohort = TRUE,
+    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = 3,
+    n.earlystop = 12, n.backfilling = 12, bf.type = "tox", bf.extended = FALSE,
+    utility.method = "mean", startdose = 1, init.size = 3, 
+    titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
+    min.complete = c(tox = 1, eff = 1), min.MF = c(tox = 1, eff = 1),
+    ntrial = nsimu, seed = seed
+  )
+  
   
   ### our method (mean utility)
   result_ours1 <- run.bfboin(
@@ -737,10 +764,13 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w
   )
   
   # overdose N
-  EN_overdose <- list(ours1 = rep(-1, 2), ours2 = rep(-1, 2), bfet = -1, titeet = -1)
+  EN_overdose <- list(ours0 = rep(-1, 2), bf = rep(-1, 2), ours1 = rep(-1, 2), 
+                      ours2 = rep(-1, 2), bfet = -1, titeet = -1)
   if (any(pT.true >= target)) {
     maxtol <- which(pT.true>=target) %>% min()
     if (maxtol < ndose) {
+      EN_overdose$ours0 <- rowSums(result_ours0$npatients[, (maxtol + 1):ndose])
+      EN_overdose$bf <- rowSums(result_bf$npatients[, (maxtol + 1):ndose])
       EN_overdose$ours1 <- rowSums(result_ours1$npatients[, (maxtol + 1):ndose])
       EN_overdose$ours2 <- rowSums(result_ours2$npatients[, (maxtol + 1):ndose])
       EN_overdose$bfet <- sum(result_bfet$n.patient[(maxtol + 1):ndose])
@@ -756,6 +786,9 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w
   colnames(settings) <- paste("Dose", 1:5)
   
   selection <- rbind(
+    MTD.ours0 = c(result_ours0$sel_MTD, result_ours0$percentstop),
+    OBD.ours0 = c(result_ours0$sel_OBD, NA),
+    MTD.bf = c(result_bf$sel_MTD, result_bf$percentstop),
     MTD.ours1 = c(result_ours1$sel_MTD, result_ours1$percentstop),
     OBD.ours1 = c(result_ours1$sel_OBD, NA),
     MTD.ours2 = c(result_ours2$sel_MTD, result_ours2$percentstop),
@@ -766,6 +799,10 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w
   colnames(selection) <- c(paste("Dose", 1:5), "early.stop")
   
   EN <- rbind(
+    ours0 = cbind(result_ours0$npatients, result_ours0$totaln[1:2], EN_overdose$ours0) %>%
+      { rownames(.) <- c("ours0.s1", "ours0.s2"); . },
+    bf = cbind(result_bf$npatients, result_bf$totaln[1:2], EN_overdose$bf) %>%
+      { rownames(.) <- c("bf.s1", "bf.s2"); . },
     ours1 = cbind(result_ours1$npatients, result_ours1$totaln[1:2], EN_overdose$ours1) %>%
       { rownames(.) <- c("ours1.s1", "ours1.s2"); . },
     ours2 = cbind(result_ours2$npatients, result_ours2$totaln[1:2], EN_overdose$ours2) %>%
@@ -776,6 +813,8 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true, accuralrate, DLTwindow, w
   colnames(EN) <- c(paste("Dose", 1:5), "EN", "EN.Overdose")
   
   duration <- c(
+    ours0 = result_ours0$duration,
+    bf = result_bf$duration,
     ours1 = result_ours1$duration,
     ours2 = result_ours2$duration,
     titeet = result_titeet$duration/30,
@@ -796,20 +835,27 @@ pT.true <- rbind(
   c(0.05, 0.15, 0.25, 0.35, 0.50),
   c(0.02, 0.06, 0.10, 0.20, 0.35),
   c(0.01, 0.03, 0.05, 0.12, 0.22),
-  c(0.10, 0.20, 0.35, 0.43, 0.50)
+  c(0.10, 0.20, 0.35, 0.43, 0.50),
+  c(0.02, 0.06, 0.10, 0.20, 0.35),
+  c(0.05, 0.10, 0.20, 0.35, 0.40),
+  c(0.01, 0.05, 0.15, 0.18, 0.35)
 )
 pE.true <- rbind(
   c(0.35, 0.35, 0.37, 0.39, 0.39),
   c(0.10, 0.35, 0.35, 0.38, 0.39),
   c(0.05, 0.10, 0.35, 0.35, 0.40),
   c(0.05, 0.10, 0.15, 0.35, 0.36),
-  c(0.10, 0.36, 0.37, 0.40, 0.41)
+  c(0.10, 0.36, 0.37, 0.40, 0.41),
+  c(0.05, 0.10, 0.15, 0.35, 0.37),
+  c(0.35, 0.36, 0.37, 0.40, 0.41),
+  c(0.05, 0.35, 0.36, 0.37, 0.38)
 )
 
 all_config <- expand.grid(
   Scenarrio = 1:nrow(pT.true),
-  DLT_window = c(1, 3),
-  accural_rate = c(3, 1)
+  DLT_window = c(1, 2, 3),
+  eff_window = c(1, 2, 3), 
+  accural_rate = c(1, 2, 3)
 )
 
 
@@ -817,17 +863,19 @@ output <- MAIN.func(
   pT.true = pT.true[all_config$Scenarrio[sc00], ], 
   pE.true = pE.true[all_config$Scenarrio[sc00], ], 
   accuralrate = all_config$accural_rate[sc00], 
-  DLTwindow = all_config$DLT_window[sc00], nsimu = 5000
+  DLTwindow = all_config$DLT_window[sc00], 
+  effwindow = all_config$eff_window[sc00], 
+  nsimu = 5000
 )
 output$settings <- cbind(setting.idx = sc00, output$settings) %>% 
   as.data.frame() %>% tibble() %>% 
   mutate(metric = c("True.Tox", "True.Eff", "True.Utility"), .after = 1)
 output$selection <- cbind(setting.idx = sc00, output$selection) %>% 
   as.data.frame() %>% tibble() %>% 
-  mutate(method = c("MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "OBD.titeet", "OBD.bfet"), .after = 1)
+  mutate(method = c("MTD.ours0", "OBD.ours0", "MTD.bf", "MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "OBD.titeet", "OBD.bfet"), .after = 1)
 output$EN <- cbind(setting.idx = sc00, output$EN, duration = output$duration) %>% 
   as.data.frame() %>% tibble() %>% 
-  mutate(method = c("ours1.s1", "ours1.s2", "ours2.s1", "ours2.s2", "titeet", "bfet"), .after = 1)
+  mutate(method = c("ours0.s1", "ours0.s2", "bf.s1", "bf.s2","ours1.s1", "ours1.s2", "ours2.s1", "ours2.s2", "titeet", "bfet"), .after = 1)
 
 
 
