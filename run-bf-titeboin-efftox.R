@@ -662,6 +662,7 @@ run.bfboin <- function(target,
 
   sel_MTD <- sel_OBD <- rep(0, ndose)
   nptsdose <- rbind(EN.s1 = apply(N_s1, 2, mean), EN.s2 = apply(N_s2, 2, mean))
+  nptsdose <- rbind(nptsdose, total = colSums(nptsdose))
   ntoxdose <- apply(Ytox_s1, 2, mean)
   for (i in 1:ndose) {
     sel_MTD[i] <- sum(dselect["MTD", ] == i) / ntrial * 100
@@ -691,7 +692,7 @@ run.bfboin <- function(target,
 
 MAIN.func <- function(target = 0.25, pT.true, pE.true, 
                       accuralrate, DLTwindow, effwindow, w0 = 2/3, 
-                      nsimu = 5000, seed = 123) {
+                      eff.complete = 0.21, nsimu = 5000, seed = 123) {
   ndose <- length(pT.true)
   
   ### our method (no tite)
@@ -727,7 +728,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     n.earlystop = 12, n.backfilling = 12, bf.type = "utility", bf.extended = TRUE,
     utility.method = "mean", startdose = 1, init.size = 3, 
     titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
-    min.complete = c(tox = 0.51, eff = 0.21), min.MF = c(tox = 0.25, eff = 0),
+    min.complete = c(tox = 0.51, eff = eff.complete), min.MF = c(tox = 0.25, eff = 0),
     ntrial = nsimu, seed = seed
   )
   
@@ -739,7 +740,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     n.earlystop = 12, n.backfilling = 12, bf.type = "utility", bf.extended = TRUE,
     utility.method = "pp", startdose = 1, init.size = 3, 
     titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
-    min.complete = c(tox = 0.51, eff = 0.21), min.MF = c(tox = 0.25, eff = 0),
+    min.complete = c(tox = 0.51, eff = eff.complete), min.MF = c(tox = 0.25, eff = 0),
     ntrial = nsimu, seed = seed
   )
   
@@ -799,24 +800,24 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
   colnames(selection) <- c(paste("Dose", 1:5), "early.stop")
   
   EN <- rbind(
-    ours0 = cbind(result_ours0$npatients, result_ours0$totaln[1:2], EN_overdose$ours0) %>%
-      { rownames(.) <- c("ours0.s1", "ours0.s2"); . },
-    bf = cbind(result_bf$npatients, result_bf$totaln[1:2], EN_overdose$bf) %>%
-      { rownames(.) <- c("bf.s1", "bf.s2"); . },
-    ours1 = cbind(result_ours1$npatients, result_ours1$totaln[1:2], EN_overdose$ours1) %>%
-      { rownames(.) <- c("ours1.s1", "ours1.s2"); . },
-    ours2 = cbind(result_ours2$npatients, result_ours2$totaln[1:2], EN_overdose$ours2) %>%
-      { rownames(.) <- c("ours2.s1", "ours2.s2"); . },
+    ours0 = cbind(result_ours0$npatients, result_ours0$totaln, EN_overdose$ours0) %>%
+      { rownames(.) <- c("ours0.s1", "ours0.s2", "ours0.total"); . },
+    bf = cbind(result_bf$npatients, result_bf$totaln, EN_overdose$bf) %>%
+      { rownames(.) <- c("bf.s1", "bf.s2", "bf.total"); . },
+    ours1 = cbind(result_ours1$npatients, result_ours1$totaln, EN_overdose$ours1) %>%
+      { rownames(.) <- c("ours1.s1", "ours1.s2", "ours1.total"); . },
+    ours2 = cbind(result_ours2$npatients, result_ours2$totaln, EN_overdose$ours2) %>%
+      { rownames(.) <- c("ours2.s1", "ours2.s2", "ours2.total"); . },
     titeet = c(result_titeet$n.patient, sum(result_titeet$n.patient), EN_overdose$titeet),
     bfet = c(result_bfet$n.patient, result_bfet$totaln, EN_overdose$bfet)
   )  %>% round(2)
   colnames(EN) <- c(paste("Dose", 1:5), "EN", "EN.Overdose")
   
   duration <- c(
-    ours0 = result_ours0$duration,
-    bf = result_bf$duration,
-    ours1 = result_ours1$duration,
-    ours2 = result_ours2$duration,
+    ours0 = c(result_ours0$duration[1], diff(result_ours0$duration), result_ours0$duration[2]),
+    bf = c(result_bf$duration[1], diff(result_bf$duration), result_bf$duration[2]),
+    ours1 = c(result_ours1$duration[1], diff(result_ours1$duration), result_ours1$duration[2]),
+    ours2 = c(result_ours2$duration[1], diff(result_ours2$duration), result_ours2$duration[2]),
     titeet = result_titeet$duration/30,
     bfet = result_bfet$duration
   )  %>% round(2)
@@ -855,7 +856,8 @@ all_config <- expand.grid(
   Scenarrio = 1:nrow(pT.true),
   DLT_window = c(1, 2, 3),
   eff_window = c(1, 2, 3), 
-  accural_rate = c(1, 2, 3)
+  accural_rate = c(1, 2, 3),
+  eff_complete = c(0.21, 0.31, 0.41)
 )
 
 
@@ -865,6 +867,7 @@ output <- MAIN.func(
   accuralrate = all_config$accural_rate[sc00], 
   DLTwindow = all_config$DLT_window[sc00], 
   effwindow = all_config$eff_window[sc00], 
+  eff.complete = all_config$eff_complete[sc00], 
   nsimu = 5000
 )
 output$settings <- cbind(setting.idx = sc00, output$settings) %>% 
@@ -875,7 +878,7 @@ output$selection <- cbind(setting.idx = sc00, output$selection) %>%
   mutate(method = c("MTD.ours0", "OBD.ours0", "MTD.bf", "MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "OBD.titeet", "OBD.bfet"), .after = 1)
 output$EN <- cbind(setting.idx = sc00, output$EN, duration = output$duration) %>% 
   as.data.frame() %>% tibble() %>% 
-  mutate(method = c("ours0.s1", "ours0.s2", "bf.s1", "bf.s2","ours1.s1", "ours1.s2", "ours2.s1", "ours2.s2", "titeet", "bfet"), .after = 1)
+  mutate(method = c("ours0.s1", "ours0.s2", "ours0.total", "bf.s1", "bf.s2", "bf.total", "ours1.s1", "ours1.s2", "ours1.total", "ours2.s1", "ours2.s2", "ours2.total", "titeet", "bfet"), .after = 1)
 
 
 
