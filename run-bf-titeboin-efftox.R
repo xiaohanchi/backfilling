@@ -699,7 +699,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
   result_ours0 <- run.bfboin(
     target = target, pT.true = pT.true, pE.true = pE.true, w0 = w0,
     ncohort = 10, cohortsize = 3, fixed.cohort = TRUE,
-    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = 3,
+    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = effwindow,
     n.earlystop = 12, n.backfilling = 12, bf.type = "utility", bf.extended = TRUE,
     utility.method = "mean", startdose = 1, init.size = 3, 
     titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
@@ -711,7 +711,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
   result_bf <- run.bfboin(
     target = target, pT.true = pT.true, pE.true = pE.true, w0 = w0,
     ncohort = 10, cohortsize = 3, fixed.cohort = TRUE,
-    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = 3,
+    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = effwindow,
     n.earlystop = 12, n.backfilling = 12, bf.type = "tox", bf.extended = FALSE,
     utility.method = "mean", startdose = 1, init.size = 3, 
     titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
@@ -724,7 +724,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
   result_ours1 <- run.bfboin(
     target = target, pT.true = pT.true, pE.true = pE.true, w0 = w0,
     ncohort = 10, cohortsize = 3, fixed.cohort = TRUE,
-    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = 3,
+    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = effwindow,
     n.earlystop = 12, n.backfilling = 12, bf.type = "utility", bf.extended = TRUE,
     utility.method = "mean", startdose = 1, init.size = 3, 
     titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
@@ -736,7 +736,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
   result_ours2 <- run.bfboin(
     target = target, pT.true = pT.true, pE.true = pE.true, w0 = w0,
     ncohort = 10, cohortsize = 3, fixed.cohort = TRUE,
-    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = 3,
+    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = effwindow,
     n.earlystop = 12, n.backfilling = 12, bf.type = "utility", bf.extended = TRUE,
     utility.method = "pp", startdose = 1, init.size = 3, 
     titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
@@ -748,9 +748,9 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
   result_titeet <- tite.boinet(
     n.dose = 5, start.dose = 1, size.cohort = 3, n.cohort = 10, 
     toxprob = pT.true, effprob = pE.true, 
-    phi = 0.25, delta = 0.50, tau.T = DLTwindow * 30, tau.E = 3 * 30, 
+    phi = 0.25, delta = 0.50, tau.T = DLTwindow * 30, tau.E = effwindow * 30, 
     te.corr = 0, accrual = 30 / accuralrate, gen.enroll.time="exponential", 
-    stopping.npts = 12, obd.method = "utility.scoring", 
+    stopping.npts = 30, obd.method = "utility.scoring", 
     seed.sim = seed, n.sim = nsimu
     )
   
@@ -759,9 +759,9 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
   result_bfet <- get.oc.backboinet(
     target_T = target, target_E = 0.25, toxprob = pT.true, effprob = pE.true, 
     n.dose = 5, startdose = 1, ncohort = 10, cohortsize = 3, 
-    tau.T = DLTwindow, tau.E = 3, te.corr = 0, accrual = accuralrate, 
+    tau.T = DLTwindow, tau.E = effwindow, te.corr = 0, accrual = accuralrate, 
     gen.enroll.time = "exponential", 
-    stopping.npts = 12, seed.sim = seed, n.sim = nsimu
+    stopping.npts = 12, suspend = (1 - 0.51), seed.sim = seed, n.sim = nsimu
   )
   
   # overdose N
@@ -790,6 +790,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     MTD.ours0 = c(result_ours0$sel_MTD, result_ours0$percentstop),
     OBD.ours0 = c(result_ours0$sel_OBD, NA),
     MTD.bf = c(result_bf$sel_MTD, result_bf$percentstop),
+    OBD.bf = c(result_bf$sel_OBD, NA),
     MTD.ours1 = c(result_ours1$sel_MTD, result_ours1$percentstop),
     OBD.ours1 = c(result_ours1$sel_OBD, NA),
     MTD.ours2 = c(result_ours2$sel_MTD, result_ours2$percentstop),
@@ -830,7 +831,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
 }
 
 
-### RUN code ========================
+### settings ========================
 pT.true <- rbind(
   c(0.1, 0.18, 0.35, 0.40, 0.50),
   c(0.05, 0.15, 0.25, 0.35, 0.50),
@@ -860,7 +861,7 @@ all_config <- expand.grid(
   eff_complete = c(0.21, 0.31, 0.41)
 )
 
-
+### RUN code ========================
 output <- MAIN.func(
   pT.true = pT.true[all_config$Scenarrio[sc00], ], 
   pE.true = pE.true[all_config$Scenarrio[sc00], ], 
@@ -875,7 +876,7 @@ output$settings <- cbind(setting.idx = sc00, output$settings) %>%
   mutate(metric = c("True.Tox", "True.Eff", "True.Utility"), .after = 1)
 output$selection <- cbind(setting.idx = sc00, output$selection) %>% 
   as.data.frame() %>% tibble() %>% 
-  mutate(method = c("MTD.ours0", "OBD.ours0", "MTD.bf", "MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "OBD.titeet", "OBD.bfet"), .after = 1)
+  mutate(method = c("MTD.ours0", "OBD.ours0", "MTD.bf", "OBD.bf", "MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "OBD.titeet", "OBD.bfet"), .after = 1)
 output$EN <- cbind(setting.idx = sc00, output$EN, duration = output$duration) %>% 
   as.data.frame() %>% tibble() %>% 
   mutate(method = c("ours0.s1", "ours0.s2", "ours0.total", "bf.s1", "bf.s2", "bf.total", "ours1.s1", "ours1.s2", "ours1.total", "ours2.s1", "ours2.s2", "ours2.total", "titeet", "bfet"), .after = 1)
