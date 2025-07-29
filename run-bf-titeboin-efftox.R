@@ -764,20 +764,29 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     stopping.npts = 12, suspend = (1 - 0.51), seed.sim = seed, n.sim = nsimu
   )
   
+  
   # overdose N
-  EN_overdose <- list(ours0 = rep(-1, 2), bf = rep(-1, 2), ours1 = rep(-1, 2), 
-                      ours2 = rep(-1, 2), bfet = -1, titeet = -1)
+  EN_overdose <- list(ours0 = rep(-1, 3), bf = rep(-1, 3), ours1 = rep(-1, 3), 
+                      ours2 = rep(-1, 3), bfet = -1, titeet = -1)
   if (any(pT.true >= target)) {
     maxtol <- which(pT.true>=target) %>% min()
-    if (maxtol < ndose) {
+    if (maxtol < (ndose - 1)) {
       EN_overdose$ours0 <- rowSums(result_ours0$npatients[, (maxtol + 1):ndose])
       EN_overdose$bf <- rowSums(result_bf$npatients[, (maxtol + 1):ndose])
       EN_overdose$ours1 <- rowSums(result_ours1$npatients[, (maxtol + 1):ndose])
       EN_overdose$ours2 <- rowSums(result_ours2$npatients[, (maxtol + 1):ndose])
       EN_overdose$bfet <- sum(result_bfet$n.patient[(maxtol + 1):ndose])
       EN_overdose$titeet <- sum(result_titeet$n.patient[(maxtol + 1):ndose])
+    } else if (maxtol == (ndose - 1)) {
+      EN_overdose$ours0 <- result_ours0$npatients[, (maxtol + 1):ndose]
+      EN_overdose$bf <- result_bf$npatients[, (maxtol + 1):ndose]
+      EN_overdose$ours1 <- result_ours1$npatients[, (maxtol + 1):ndose]
+      EN_overdose$ours2 <- result_ours2$npatients[, (maxtol + 1):ndose]
+      EN_overdose$bfet <- sum(result_bfet$n.patient[(maxtol + 1):ndose])
+      EN_overdose$titeet <- sum(result_titeet$n.patient[(maxtol + 1):ndose])
     }
   }
+  
   
   ### summary
   settings <- rbind(

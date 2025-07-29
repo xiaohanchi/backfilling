@@ -110,7 +110,7 @@ ggsave(file="~/Intern/03slides/figures/settings.jpg",plot = p_setting_all,dpi = 
 
 
 ### OBD Selection ==============================================
-methods <- c("OBD.ours1", "OBD.titeet", "OBD.bfet")
+methods <- c("OBD.bf", "OBD.ours1", "OBD.titeet", "OBD.bfet")
 tab_sel <- read_csv("~/Intern/01project/01_code/backfilling/results/output_selection.csv") %>% 
   arrange(setting.idx) %>% filter(setting.idx %in% scenarios & method %in% methods) %>% 
   left_join(., all_config[, c("setting.idx", "Scenario")], by = "setting.idx") %>% 
@@ -122,24 +122,30 @@ for(ii in 1:nrow(tab_sel)) {
 }
 df_tmp <- data.frame(df_tmp) %>%  setNames(c("setting.idx", "method", "obd_sel", "Scenario"))
 
-### add BF-BOIN OBD selection
-new_rows <- data.frame(
-  setting.idx = unique(df_tmp$setting.idx), 
-  method = rep("bfboin", nrow(df_tmp)/length(methods)),
-  obd_sel = rep(0, nrow(df_tmp)/length(methods)),
-  Scenario = unique(df_tmp$Scenario)
-  )
-
-df_tmp <- df_tmp %>% rbind(., new_rows)
+# ### add BF-BOIN OBD selection
+# new_rows <- data.frame(
+#   setting.idx = unique(df_tmp$setting.idx), 
+#   method = rep("bfboin", nrow(df_tmp)/length(methods)),
+#   obd_sel = rep(0, nrow(df_tmp)/length(methods)),
+#   Scenario = unique(df_tmp$Scenario)
+#   )
+# 
+# df_tmp <- df_tmp %>% rbind(., new_rows)
 
 df_tmp$obd_sel <- as.numeric(df_tmp$obd_sel)
 df_tmp$Scenario<-as.factor(df_tmp$Scenario)
-df_tmp$method <- factor(df_tmp$method, levels = c("bfboin", "OBD.titeet", "OBD.bfet", "OBD.ours1"))
+df_tmp$method <- factor(df_tmp$method, levels = c("OBD.bf", "OBD.titeet", "OBD.bfet", "OBD.ours1"))
 
 
 p1<-ggplot(data=df_tmp, aes(x = Scenario, y = obd_sel, fill = method)) +
-  geom_bar(stat="identity",position=position_dodge(),color="black",width = 0.8)+
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) + 
+  geom_bar(stat="identity",position=position_dodge(width = 0.8),color="black",width = 0.8)+
+  geom_text(
+    aes(label = round(obd_sel, 1)),  # You can customize the number format
+    position = position_dodge(width = 0.8),
+    vjust = -0.3,
+    size = 3
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0, 65)) + 
   ylab("OBD Selection (%)")+
   scale_fill_manual(
     name = " ", 
@@ -220,16 +226,27 @@ df_tmp$method <-factor(df_tmp$method, levels = c("bf.total", "titeet", "bfet", "
 df_tmp$Scenario<-as.factor(df_tmp$Scenario)
 
 p2<-ggplot(data=df_tmp, aes(x = Scenario, y = EN, fill = method)) +
-  geom_bar(stat="identity",position=position_dodge(),color="black",width = 0.8)+
+  geom_bar(stat="identity",position=position_dodge(width = 0.8),color="black",width = 0.8)+
+  geom_text(
+    aes(label = round(EN, 1)),  # You can customize the number format
+    position = position_dodge(width = 0.8),
+    vjust = -0.3,
+    size = 3
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0, 45)) + 
   ylab("EN")+
   scale_fill_manual(
-    name = "", 
-    values=c("#999999", "#E69F00", "#56B4E9", "#009E73"),
+    name = " ", 
+    values = c("#999999", "#E69F00", "#56B4E9", "#009E73"),
     labels = c("BF-BOIN", "TITE-BOIN-ET", "BF-BOIN-ET", "Proposed")
-    )+
-  theme_classic()
+  ) +
+  theme_classic() + 
+  theme(legend.position = "top",
+        axis.ticks.x = element_blank(), 
+        axis.line.x = element_blank()
+  )
 p2
-
+ggsave(file="~/Intern/03slides/figures/EN.jpg",plot = p2,dpi = 400,width = 6.5,height = 2.5)
 
 ### Number of Patients at Overdoses =======================================
 methods <- c("bf.total", "ours1.total", "titeet", "bfet")
@@ -238,7 +255,7 @@ tab_overdose <- read_csv("./results/output_EN.csv") %>%
   left_join(., all_config[, c("setting.idx", "Scenario")], by = "setting.idx") %>% 
   left_join(., OBD.df, by = "Scenario") %>% 
   select(c(method, EN, EN.Overdose, Scenario)) %>% 
-  mutate(perc = EN.Overdose / EN)
+  mutate(perc = EN.Overdose / EN * 100)
 
 df_tmp <- data.frame(tab_overdose)
 df_tmp$method <- factor(df_tmp$method, levels = c("bf.total", "titeet", "bfet", "ours1.total"))
@@ -246,7 +263,14 @@ df_tmp$Scenario<-as.factor(df_tmp$Scenario)
 df_tmp$perc[df_tmp$perc < 0] <- 0
 
 p3<-ggplot(data=df_tmp, aes(x = Scenario, y = perc, fill = method)) +
-  geom_bar(stat="identity",position=position_dodge(),color="black",width = 0.8)+
+  geom_bar(stat="identity",position=position_dodge(width = 0.8),color="black",width = 0.8)+
+  geom_text(
+    aes(label = round(perc, 1)),  # You can customize the number format
+    position = position_dodge(width = 0.8),
+    vjust = -0.3,
+    size = 3
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0, 20)) + 
   ylab("Overdose Pts %")+
   scale_fill_manual(
     name = " ", 
@@ -270,15 +294,31 @@ tab_duration <- read_csv("./results/output_EN.csv") %>%
   select(c(method, duration, Scenario)) 
 
 df_tmp <- data.frame(tab_duration)
-df_tmp$method <-as.factor(df_tmp$method)
+df_tmp$method <-factor(df_tmp$method, levels = c("bf.total", "titeet", "bfet", "ours1.total"))
 df_tmp$Scenario<-as.factor(df_tmp$Scenario)
 
 p4<-ggplot(data=df_tmp, aes(x = Scenario, y = duration, fill = method)) +
-  geom_bar(stat="identity",position=position_dodge(),color="black",width = 0.8)+
-  ylab("EN")+
-  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9", "#009E73"))+
-  theme_classic()
+  geom_bar(stat="identity",position=position_dodge(width = 0.8),color="black",width = 0.8)+
+  geom_text(
+    aes(label = round(duration, 1)),  # You can customize the number format
+    position = position_dodge(width = 0.8),
+    vjust = -0.3,
+    size = 3
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0, 40)) + 
+  ylab("Duration (month)")+
+  scale_fill_manual(
+    name = " ", 
+    values = c("#999999", "#E69F00", "#56B4E9", "#009E73"),
+    labels = c("BF-BOIN", "TITE-BOIN-ET", "BF-BOIN-ET", "Proposed")
+  ) +
+  theme_classic() + 
+  theme(legend.position = "top",
+        axis.ticks.x = element_blank(), 
+        axis.line.x = element_blank()
+  )
 p4
+ggsave(file="~/Intern/03slides/figures/duration.jpg",plot = p4,dpi = 400,width = 6.5,height = 2.5)
 
 ### Trial Enrollment Efficiency =======================================
 methods <- c("bf.total", "ours1.total", "titeet", "bfet")
