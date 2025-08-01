@@ -952,10 +952,10 @@ output$settings <- cbind(setting.idx = sc00, output$settings) %>%
   mutate(metric = c("True.Tox", "True.Eff", "True.Utility"), .after = 1)
 output$selection <- cbind(setting.idx = sc00, output$selection) %>% 
   as.data.frame() %>% tibble() %>% 
-  mutate(method = c("MTD.ours0", "OBD.ours0", "MTD.bf", "OBD.bf", "MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "OBD.titeet", "OBD.bfet"), .after = 1)
+  mutate(method = c("MTD.ours0", "OBD.ours0", "MTD.bf", "OBD.bf", "MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "MTD.ours3", "OBD.ours3", "OBD.titeet", "OBD.bfet"), .after = 1)
 output$EN <- cbind(setting.idx = sc00, output$EN, duration = output$duration) %>% 
   as.data.frame() %>% tibble() %>% 
-  mutate(method = c("ours0.s1", "ours0.s2", "ours0.total", "bf.s1", "bf.s2", "bf.total", "ours1.s1", "ours1.s2", "ours1.total", "ours2.s1", "ours2.s2", "ours2.total", "titeet", "bfet"), .after = 1)
+  mutate(method = c("ours0.s1", "ours0.s2", "ours0.total", "bf.s1", "bf.s2", "bf.total", "ours1.s1", "ours1.s2", "ours1.total", "ours2.s1", "ours2.s2", "ours2.total",  "ours3.s1", "ours3.s2", "ours3.total", "titeet", "bfet"), .after = 1)
 
 
 
