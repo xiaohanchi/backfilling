@@ -114,6 +114,18 @@ next.dose <- function(target, d, y, y.obs, n, n.pend, elimi, lambda.e, lambda.d)
   return(list(next_d = next_d, suspend = suspend, escalate = escalate))
 }
 
+find_cohortsize <- function(target, phat_tox_exact, n, d, cutoff.eli, init_size, n_left) {
+  if (n[d] == 0) return(init_size)
+  
+  for (x in 1:100) {  
+    prob <- 1 - pbeta(target, x + phat_tox_exact[1, d] + 1, n[d] - phat_tox_exact[1, d] + 1)
+    if (prob > cutoff.eli & n[d] + x >= 3) {
+      return(min(x, n_left))
+    }
+  }
+  return(NA)
+}
+
 
 ### BF-TITE-BOIN =======================
 run.bfboin <- function(target, 
@@ -121,7 +133,7 @@ run.bfboin <- function(target,
                        pE.true, 
                        w0 = 2 / 3, 
                        ncohort, 
-                       cohortsize,
+                       cohortsize = 3,
                        fixed.cohort = TRUE, 
                        accuralrate = 3,
                        DLTwindow = 1, 
@@ -147,11 +159,13 @@ run.bfboin <- function(target,
                        min.MF = c(tox = 0.25, eff = 0),
                        ntrial = 1000, 
                        seed = 6) {
+  # cohortsize: in adaptive cohort size?
   
   bf.type <- match.arg(bf.type)
   utility.method <- match.arg(utility.method)
   
   set.seed(seed)
+    
   # utility: (no tox, eff), (no tox, no eff), (tox, eff), (tox, no eff)
   utility_score <- c(100, 100 * w0 / (w0 + 1), 100 / (w0 + 1), 0)
   lower_u <- utility_score[1] * (1 - pT.tox) * pE.low + utility_score[2] * (1 - pT.tox) * (1 - pE.low) + utility_score[3] * pT.tox * pE.low
@@ -163,12 +177,13 @@ run.bfboin <- function(target,
   lambda_d <- log((1 - target) / (1 - pT.tox)) / log(pT.tox * (1 - target) / (target * (1 - pT.tox)))
 
   ndose <- length(pT.true)
-  npts <- ncohort * cohortsize
+  npts <- ncohort * cohortsize # keep it as a ref
   nprior <- 1
   priortox <- target / 2 # the prior mean for the Beta prior
   prioreff <- 0.50 / 2
 
   Ytox_s1 <- Yeff_s1 <- Ytox_s2 <- Yeff_s2 <- N_s1 <- N_s2 <- matrix(rep(0, ndose * ntrial), ncol = ndose)
+  cohortsize_all <- list()
   dselect <- matrix(NA, nrow = 2,ncol = ntrial) %>% {`rownames<-`(., c("MTD", "OBD"))}
   duration <- matrix(NA, nrow = 2,ncol = ntrial) %>% {`rownames<-`(., c("dose_finding", "extended_bf"))}
 
@@ -184,6 +199,11 @@ run.bfboin <- function(target,
     n <- elimi <- rep(0, ndose)
     earlystop <- 0 # dose 1 stopping indicator
     d <- startdose
+    if (!fixed.cohort) {
+      cohortsize_v <- init.size # default for the first cohort
+    } else {
+      cohortsize_v <- cohortsize
+    }
     this_cosize <- init_cosize <- 1
     bf_dose <- dv <- c()
     DLTresult_t <- effresult_t <- assess_t <- decision_t <- c() # DLTresult_t: time of obtaining the DLT results (y/n)
@@ -244,19 +264,22 @@ run.bfboin <- function(target,
       n <- rowSums(trial_log$n)
 
       ## add timeline for pending pts
-      if (sum(patient_type == 1) >= npts) {
-        # trial stops: max patients reached
-        trialcont <- FALSE
-        decision_t[ii] <- assess_t[ii] + max(DLTwindow, effwindow)
-      } else if (patient_type[ii] == 1 & this_cosize == cohortsize & n[d] >= n.earlystop) {
-        # Stop trial if number of patients assigned to single dose reaches "n.earlystop" and the decision is to stay
-        # If early stop number reached, let the last patient complete the follow-up
-        decision_DFt <- assess_t[ii] + DLTwindow
-        decision_t[ii] <- arrival_t[ii + 1] # for tite calculation
-        early_susp <- TRUE
-      } else {
-        decision_t[ii] <- arrival_t[ii + 1]
+      if (ii > 1) {
+        if (sum(patient_type == 1) >= npts) {
+          # trial stops: max patients reached
+          trialcont <- FALSE
+          decision_t[ii] <- assess_t[ii] + max(DLTwindow, effwindow)
+        } else if (patient_type[ii] == 1 & (this_cosize == tail(cohortsize_v, 1)) & rowSums(trial_log$n[, patient_type == 1])[d] >= n.earlystop) {
+          # Stop trial if number of dose-finding patients assigned to single dose reaches "n.earlystop" and the decision is to stay
+          # If early stop number reached, let the last patient complete the follow-up
+          decision_DFt <- assess_t[ii] + DLTwindow
+          decision_t[ii] <- arrival_t[ii + 1] # for tite calculation
+          early_susp <- TRUE
+        } else {
+          decision_t[ii] <- arrival_t[ii + 1]
+        }
       }
+     
 
       finish_idx <- list(
         tox = (DLTresult_t <= decision_t[ii]), eff = (effresult_t <= decision_t[ii])
@@ -345,7 +368,7 @@ run.bfboin <- function(target,
       }
       
 
-      if (this_cosize == cohortsize) {
+      if (this_cosize == tail(cohortsize_v, 1)) {
         for (dd in 1:ndose) {
           if (1 - pbeta(target, ytox_obs[dd] + 1, n[dd] - ytox_obs[dd] + 1) > cutoff.eli & n[dd] >= 3) {
             elimi[dd:ndose] <- 1
@@ -455,110 +478,128 @@ run.bfboin <- function(target,
           patient_type[ii + 1] <- 1
 
         } else {
-          if (ii == init.size) this_cosize <- min(init_cosize, cohortsize)
-          if (fixed.cohort) {
+          if (ii == init.size) this_cosize <- min(init_cosize, tail(cohortsize_v, 1))
+          # if (fixed.cohort) {
             # fixed cohort size (e.g., = 3)
-            if (this_cosize == cohortsize) {
-              # Suspending rules
-              #----------------------------------------------------#
-              # Rule 1: Suspend the accrual to await more data if < min.complete % patients
-              # have complete DLT window at the current dose d (default min.complete=51).
+          if (this_cosize == tail(cohortsize_v, 1)) {
+            # Suspending rules
+            #----------------------------------------------------#
+            # Rule 1: Suspend the accrual to await more data if < min.complete % patients
+            # have complete DLT window at the current dose d (default min.complete=51).
 
-              # (Rule 2) Delay escalation decision if the last pending patient at the current
-              # dose have completed < min.MF % of the DLT assessment window (default min.MF=25).
-              #----------------------------------------------------#
+            # (Rule 2) Delay escalation decision if the last pending patient at the current
+            # dose have completed < min.MF % of the DLT assessment window (default min.MF=25).
+            #----------------------------------------------------#
 
-              cset_susp <- (dv == d)
-              npend_susp <- list(
-                tox = sum(cset_susp & (!finish_idx$tox)), eff = sum(cset_susp & (!finish_idx$eff))
-              )
+            cset_susp <- (dv == d)
+            npend_susp <- list(
+              tox = sum(cset_susp & (!finish_idx$tox)), 
+              eff = sum(cset_susp & (!finish_idx$eff))
+            )
 
-              # obs y's trigger de-escalate (tox only)
-              if ((ytox_obs[d] / n[d]) >= lambda_d) {
-                # no need to suspend; directly go to the dose-finding cohort
-                if (d == 1) {
-                  d <- d
-                  if (npend_susp$tox > 0) {
-                    arrival_t <- arrival_t[-(ii + 1)]
-                    suspend <- TRUE
-                  } else {
-                    this_cosize <- 1
-                    assess_t[ii + 1] <- arrival_t[ii + 1]
-                    patient_type[ii + 1] <- 1
-                  }
+            # obs y's trigger de-escalate (tox only)
+            if ((ytox_obs[d] / n[d]) >= lambda_d) {
+              # no need to suspend; directly go to the dose-finding cohort
+              if (d == 1) {
+                d <- d
+                if (npend_susp$tox > 0) {
+                  arrival_t <- arrival_t[-(ii + 1)]
+                  suspend <- TRUE
                 } else {
-                  d <- d - 1
-                  this_cosize <- 1
-                  assess_t[ii + 1] <- arrival_t[ii + 1]
-                  patient_type[ii + 1] <- 1
-                }
-                if (!suspend) ii <- ii + 1
-                next
-              }
-
-              susp_rule1 <- (((n[d] - npend_susp$tox) < (min.complete["tox"] * n[d])) | 
-                               ((n[d] - npend_susp$eff) < (min.complete["eff"] * n[d]))) %>% {`names<-`(., NULL)}
-
-              decide_tmp <- next.dose(
-                target = target, d = d, y = phat_tox[1, ], y.obs = ytox_obs, n = phat_tox[2, ],
-                n.pend = npend_susp$tox, elimi = elimi, lambda.e = lambda_e, lambda.d = lambda_d
-              )
-              d_tmp <- decide_tmp$next_d
-              susp_rule3 <- decide_tmp$suspend
-
-              SFTL_tox <- ifelse(
-                npend_susp$tox == 0,
-                1,
-                min(followup_t$tox[cset_susp & (!finish_idx$tox)]) / DLTwindow
-              )
-              SFTL_eff <- ifelse(
-                npend_susp$eff == 0,
-                1,
-                min(followup_t$eff[cset_susp & (!finish_idx$eff)]) / effwindow
-              )
-
-              susp_rule2 <- (decide_tmp$escalate) & (
-                (SFTL_tox < min.MF["tox"] | npend_susp$tox == n[d]) | (SFTL_eff < min.MF["eff"])
-              ) %>% {`names<-`(., NULL)}
-
-
-              if (length(bf_dose) > 0) {
-                if (susp_rule1 | susp_rule2 | susp_rule3) {
-                  # backfilling
-                  bf_d <- switch(
-                    bf.type,
-                    utility = bf_dose[which.max(uhat[bf_dose])],
-                    tox     = max(bf_dose)
-                  )
-                  assess_t[ii + 1] <- arrival_t[ii + 1]
-                  patient_type[ii + 1] <- 2
-                } else {
-                  # dose-finding
-                  d <- d_tmp
                   this_cosize <- 1
                   assess_t[ii + 1] <- arrival_t[ii + 1]
                   patient_type[ii + 1] <- 1
                 }
               } else {
-                if (susp_rule1 | susp_rule2 | susp_rule3) {
-                  arrival_t <- arrival_t[-(ii + 1)]
-                  suspend <- TRUE
-                } else {
-                  # start a new cohort
-                  d <- d_tmp
-                  this_cosize <- 1
-                  assess_t[ii + 1] <- arrival_t[ii + 1]
-                  patient_type[ii + 1] <- 1
-                }
+                d <- d - 1
+                this_cosize <- 1
+                assess_t[ii + 1] <- arrival_t[ii + 1]
+                patient_type[ii + 1] <- 1
+              }
+              ### +++ decide cohort size
+              if (this_cosize == 1 & patient_type[ii + 1] == 1 & (!fixed.cohort) & (!suspend)) {
+                #update cohortsize
+                cohortsize_v <- find_cohortsize(target = target, phat_tox_exact = phat_tox_exact, n = n, d = d, cutoff.eli = cutoff.eli, init_size = init.size, n_left = (n.earlystop - rowSums(trial_log$n[, patient_type[1:ii] == 1])[d])) %>% c(cohortsize_v, .)
+                if (tail(cohortsize_v, 1) == 0) trialcont <- FALSE
+                
+              }
+              if (!suspend) ii <- ii + 1
+              next
+            }
+
+            susp_rule1 <- (((n[d] - npend_susp$tox) < (min.complete["tox"] * n[d])) | 
+                             ((n[d] - npend_susp$eff) < (min.complete["eff"] * n[d]))) %>% {`names<-`(., NULL)}
+
+            decide_tmp <- next.dose(
+              target = target, d = d, y = phat_tox[1, ], y.obs = ytox_obs, n = phat_tox[2, ],
+              n.pend = npend_susp$tox, elimi = elimi, lambda.e = lambda_e, lambda.d = lambda_d
+            )
+            d_tmp <- decide_tmp$next_d
+            susp_rule3 <- decide_tmp$suspend
+
+            SFTL_tox <- ifelse(
+              npend_susp$tox == 0,
+              1,
+              min(followup_t$tox[cset_susp & (!finish_idx$tox)]) / DLTwindow
+            )
+            SFTL_eff <- ifelse(
+              npend_susp$eff == 0,
+              1,
+              min(followup_t$eff[cset_susp & (!finish_idx$eff)]) / effwindow
+            )
+
+            susp_rule2 <- (decide_tmp$escalate) & (
+              (SFTL_tox < min.MF["tox"] | npend_susp$tox == n[d]) | (SFTL_eff < min.MF["eff"])
+            ) %>% {`names<-`(., NULL)}
+
+
+            if (length(bf_dose) > 0) {
+              if (susp_rule1 | susp_rule2 | susp_rule3) {
+                # backfilling
+                bf_d <- switch(
+                  bf.type,
+                  utility = bf_dose[which.max(uhat[bf_dose])],
+                  tox     = max(bf_dose)
+                )
+                assess_t[ii + 1] <- arrival_t[ii + 1]
+                patient_type[ii + 1] <- 2
+              } else {
+                # dose-finding
+                d <- d_tmp
+                this_cosize <- 1
+                assess_t[ii + 1] <- arrival_t[ii + 1]
+                patient_type[ii + 1] <- 1
+  
               }
             } else {
-              # to dose-finding part & current dose cohort
-              d <- d
-              this_cosize <- this_cosize + 1
-              assess_t[ii + 1] <- arrival_t[ii + 1]
-              patient_type[ii + 1] <- 1
+              if (susp_rule1 | susp_rule2 | susp_rule3) {
+                arrival_t <- arrival_t[-(ii + 1)]
+                suspend <- TRUE
+              } else {
+                # start a new cohort
+                d <- d_tmp
+                this_cosize <- 1
+                assess_t[ii + 1] <- arrival_t[ii + 1]
+                patient_type[ii + 1] <- 1
+              }
             }
+          } else {
+            # to dose-finding part & current dose cohort
+            d <- d
+            this_cosize <- this_cosize + 1
+            assess_t[ii + 1] <- arrival_t[ii + 1]
+            patient_type[ii + 1] <- 1
           }
+        # }
+          if (this_cosize == 1 & patient_type[ii + 1] == 1 & (!fixed.cohort) & (!suspend)) {
+            #update cohortsize
+            cohortsize_v <- find_cohortsize(target = target, phat_tox_exact = phat_tox_exact, n = n, d = d, cutoff.eli = cutoff.eli, init_size = init.size, n_left = (n.earlystop - rowSums(trial_log$n[, patient_type[1:ii] == 1])[d])) %>% c(cohortsize_v, .)
+            if (tail(cohortsize_v, 1) == 0) trialcont <- FALSE
+            
+          }
+          
+          
+          
         }
 
         # if continue
@@ -571,6 +612,7 @@ run.bfboin <- function(target,
     Yeff_s1[trial, ] <- rowSums(trial_log$y_eff)
     N_s1[trial, ] <- n
     duration["dose_finding", trial] <- (max(assess_t) - arrival_t[1]) + max(DLTwindow, effwindow)
+    cohortsize_all[[trial]] <- cohortsize_v
     
     if (earlystop == 1) {
       dselect[ , trial] <- 99  # early stopping: no need to extend
@@ -664,6 +706,7 @@ run.bfboin <- function(target,
   nptsdose <- rbind(EN.s1 = apply(N_s1, 2, mean), EN.s2 = apply(N_s2, 2, mean))
   nptsdose <- rbind(nptsdose, total = colSums(nptsdose))
   ntoxdose <- apply(Ytox_s1, 2, mean)
+  avg_cohort <- sapply(cohortsize_all, function(v) mean(v[v>0])) %>% mean()
   for (i in 1:ndose) {
     sel_MTD[i] <- sum(dselect["MTD", ] == i) / ntrial * 100
     sel_OBD[i] <- sum(dselect["OBD", ] == i) / ntrial * 100
@@ -675,6 +718,7 @@ run.bfboin <- function(target,
     totaln = c(s1 = sum(N_s1), s2 = sum(N_s2), total = sum(N_s1+N_s2)) / ntrial,
     percentstop = sum(dselect["MTD", ] == 99) / ntrial * 100, 
     duration = rowMeans(duration),
+    avg_cohortsize = avg_cohort, 
     simu.setup = data.frame(
       target = target, pT.true = pT.true, pE.true = pE.true, 
       ncohort = ncohort, cohortsize = cohortsize,
@@ -744,6 +788,18 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     ntrial = nsimu, seed = seed
   )
   
+  ### our method (mean utility, adaptive cohort size)
+  result_ours3 <- run.bfboin(
+    target = target, pT.true = pT.true, pE.true = pE.true, w0 = w0,
+    ncohort = 10, cohortsize = 3, fixed.cohort = FALSE,
+    accuralrate = accuralrate, DLTwindow = DLTwindow, effwindow = effwindow,
+    n.earlystop = 12, n.backfilling = 12, bf.type = "utility", bf.extended = TRUE,
+    utility.method = "mean", startdose = 1, init.size = 3, 
+    titration = FALSE, pE.low = 0.20, cutoff.eff = 0.90,
+    min.complete = c(tox = 0.51, eff = eff.complete), min.MF = c(tox = 0.25, eff = 0),
+    ntrial = nsimu, seed = seed
+  )
+  
   ### TITE-BOIN-ET
   result_titeet <- tite.boinet(
     n.dose = 5, start.dose = 1, size.cohort = 3, n.cohort = 10, 
@@ -766,8 +822,10 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
   
   
   # overdose N
-  EN_overdose <- list(ours0 = rep(-1, 3), bf = rep(-1, 3), ours1 = rep(-1, 3), 
-                      ours2 = rep(-1, 3), bfet = -1, titeet = -1)
+  EN_overdose <- list(
+    ours0 = rep(-1, 3), bf = rep(-1, 3), ours1 = rep(-1, 3), 
+    ours2 = rep(-1, 3), ours3 = rep(-1, 3), bfet = -1, titeet = -1
+    )
   if (any(pT.true >= target)) {
     maxtol <- which(pT.true>=target) %>% min()
     if (maxtol < (ndose - 1)) {
@@ -775,6 +833,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
       EN_overdose$bf <- rowSums(result_bf$npatients[, (maxtol + 1):ndose])
       EN_overdose$ours1 <- rowSums(result_ours1$npatients[, (maxtol + 1):ndose])
       EN_overdose$ours2 <- rowSums(result_ours2$npatients[, (maxtol + 1):ndose])
+      EN_overdose$ours3 <- rowSums(result_ours3$npatients[, (maxtol + 1):ndose])
       EN_overdose$bfet <- sum(result_bfet$n.patient[(maxtol + 1):ndose])
       EN_overdose$titeet <- sum(result_titeet$n.patient[(maxtol + 1):ndose])
     } else if (maxtol == (ndose - 1)) {
@@ -782,6 +841,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
       EN_overdose$bf <- result_bf$npatients[, (maxtol + 1):ndose]
       EN_overdose$ours1 <- result_ours1$npatients[, (maxtol + 1):ndose]
       EN_overdose$ours2 <- result_ours2$npatients[, (maxtol + 1):ndose]
+      EN_overdose$ours3 <- result_ours3$npatients[, (maxtol + 1):ndose]
       EN_overdose$bfet <- sum(result_bfet$n.patient[(maxtol + 1):ndose])
       EN_overdose$titeet <- sum(result_titeet$n.patient[(maxtol + 1):ndose])
     }
@@ -804,30 +864,35 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     OBD.ours1 = c(result_ours1$sel_OBD, NA),
     MTD.ours2 = c(result_ours2$sel_MTD, result_ours2$percentstop),
     OBD.ours2 = c(result_ours2$sel_OBD, NA),
+    MTD.ours3 = c(result_ours3$sel_MTD, result_ours3$percentstop),
+    OBD.ours3 = c(result_ours3$sel_OBD, NA),
     OBD.titeet = c(result_titeet$prop.select, result_titeet$prop.stop),
     OBD.bfet = c(result_bfet$prop.select, result_bfet$prop.stop)
   ) %>% round(2)
   colnames(selection) <- c(paste("Dose", 1:5), "early.stop")
   
   EN <- rbind(
-    ours0 = cbind(result_ours0$npatients, result_ours0$totaln, EN_overdose$ours0) %>%
+    ours0 = cbind(result_ours0$npatients, result_ours0$totaln, EN_overdose$ours0, c(0, 0, result_ours0$totaltox)) %>%
       { rownames(.) <- c("ours0.s1", "ours0.s2", "ours0.total"); . },
-    bf = cbind(result_bf$npatients, result_bf$totaln, EN_overdose$bf) %>%
+    bf = cbind(result_bf$npatients, result_bf$totaln, EN_overdose$bf, c(0, 0, result_bf$totaltox)) %>%
       { rownames(.) <- c("bf.s1", "bf.s2", "bf.total"); . },
-    ours1 = cbind(result_ours1$npatients, result_ours1$totaln, EN_overdose$ours1) %>%
+    ours1 = cbind(result_ours1$npatients, result_ours1$totaln, EN_overdose$ours1, c(0, 0, result_ours1$totaltox)) %>%
       { rownames(.) <- c("ours1.s1", "ours1.s2", "ours1.total"); . },
-    ours2 = cbind(result_ours2$npatients, result_ours2$totaln, EN_overdose$ours2) %>%
+    ours2 = cbind(result_ours2$npatients, result_ours2$totaln, EN_overdose$ours2, c(0, 0, result_ours2$totaltox)) %>%
       { rownames(.) <- c("ours2.s1", "ours2.s2", "ours2.total"); . },
-    titeet = c(result_titeet$n.patient, sum(result_titeet$n.patient), EN_overdose$titeet),
-    bfet = c(result_bfet$n.patient, result_bfet$totaln, EN_overdose$bfet)
+    ours3 = cbind(result_ours3$npatients, result_ours3$totaln, EN_overdose$ours3, c(0, 0, result_ours3$totaltox)) %>%
+      { rownames(.) <- c("ours3.s1", "ours3.s2", "ours3.total"); . },
+    titeet = c(result_titeet$n.patient, sum(result_titeet$n.patient), EN_overdose$titeet, NA),
+    bfet = c(result_bfet$n.patient, result_bfet$totaln, EN_overdose$bfet, sum(result_bfet$n.tox.patient))
   )  %>% round(2)
-  colnames(EN) <- c(paste("Dose", 1:5), "EN", "EN.Overdose")
+  colnames(EN) <- c(paste("Dose", 1:5), "EN", "EN.Overdose", "DLT_pts")
   
   duration <- c(
     ours0 = c(result_ours0$duration[1], diff(result_ours0$duration), result_ours0$duration[2]),
     bf = c(result_bf$duration[1], diff(result_bf$duration), result_bf$duration[2]),
     ours1 = c(result_ours1$duration[1], diff(result_ours1$duration), result_ours1$duration[2]),
     ours2 = c(result_ours2$duration[1], diff(result_ours2$duration), result_ours2$duration[2]),
+    ours3 = c(result_ours3$duration[1], diff(result_ours3$duration), result_ours3$duration[2]),
     titeet = result_titeet$duration/30,
     bfet = result_bfet$duration
   )  %>% round(2)
@@ -849,7 +914,8 @@ pT.true <- rbind(
   c(0.10, 0.20, 0.35, 0.43, 0.50),
   c(0.02, 0.06, 0.10, 0.20, 0.35),
   c(0.05, 0.10, 0.20, 0.35, 0.40),
-  c(0.01, 0.05, 0.15, 0.18, 0.35)
+  c(0.01, 0.05, 0.15, 0.18, 0.35),
+  c(0.20, 0.35, 0.45, 0.50, 0.55)
 )
 pE.true <- rbind(
   c(0.35, 0.35, 0.37, 0.39, 0.39),
@@ -859,14 +925,15 @@ pE.true <- rbind(
   c(0.10, 0.36, 0.37, 0.40, 0.41),
   c(0.05, 0.10, 0.15, 0.35, 0.37),
   c(0.35, 0.36, 0.37, 0.40, 0.41),
-  c(0.05, 0.35, 0.36, 0.37, 0.38)
+  c(0.05, 0.35, 0.36, 0.37, 0.38),
+  c(0.35, 0.40, 0.42, 0.45, 0.50)
 )
 
 all_config <- expand.grid(
   Scenarrio = 1:nrow(pT.true),
   DLT_window = c(1, 2, 3),
   eff_window = c(1, 2, 3), 
-  accural_rate = c(1, 2, 3),
+  accural_rate = c(1, 2, 3, 6),
   eff_complete = c(0.21, 0.31, 0.41)
 )
 

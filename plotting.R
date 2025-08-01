@@ -50,7 +50,7 @@ tab_setting <-  read_csv("./results/output_settings.csv") %>%
 ### Setting Curves =============================================
 
 p_setting <- list()
-for (ii in 1:8) {
+for (ii in 1:9) {
   
   df_tmp <- data.frame(
     Toxicity = pT.true[ii, ], Efficacy = pE.true[ii, ], Utility = true.utility[ii, ]
@@ -62,7 +62,7 @@ for (ii in 1:8) {
   
   p_setting[[ii]] <- ggplot(df_tmp, aes(x = dose, y = value, color = group, shape = group, linetype = group)) +
     scale_y_continuous(limits = c(0, 0.5), breaks = seq(0, 0.5, by = 0.1)) + 
-    geom_line(size = 1) +
+    geom_line(linewidth = 1) +
     geom_point(size = 3) +
     geom_hline(yintercept = 0.25, color = "gray", linetype = "dashed", size = 1) + 
     labs(x = "Dose Level", y = "Probability", title = paste("Scenario", ii)) +
@@ -101,7 +101,7 @@ plot_list_clean <- lapply(seq_along(p_setting), function(rr) {
   p
 })
 
-p_setting_all <- wrap_plots(plot_list_clean[1:4], ncol = 4)
+p_setting_all <- wrap_plots(plot_list_clean[1:9], ncol = 3)
 # p_setting_all <- wrap_plots(plot_list_clean[1:8], ncol = 4)
 p_setting_all
 
