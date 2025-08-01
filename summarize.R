@@ -10,7 +10,8 @@ pT.true <- rbind(
   c(0.10, 0.20, 0.35, 0.43, 0.50),
   c(0.02, 0.06, 0.10, 0.20, 0.35),
   c(0.05, 0.10, 0.20, 0.35, 0.40),
-  c(0.01, 0.05, 0.15, 0.18, 0.35)
+  c(0.01, 0.05, 0.15, 0.18, 0.35),
+  c(0.20, 0.35, 0.45, 0.50, 0.55)
 )
 pE.true <- rbind(
   c(0.35, 0.35, 0.37, 0.39, 0.39),
@@ -20,14 +21,16 @@ pE.true <- rbind(
   c(0.10, 0.36, 0.37, 0.40, 0.41),
   c(0.05, 0.10, 0.15, 0.35, 0.37),
   c(0.35, 0.36, 0.37, 0.40, 0.41),
-  c(0.05, 0.35, 0.36, 0.37, 0.38)
+  c(0.05, 0.35, 0.36, 0.37, 0.38),
+  c(0.35, 0.40, 0.42, 0.45, 0.50)
 )
 
 all_config <- expand.grid(
   Scenarrio = 1:nrow(pT.true),
   DLT_window = c(1, 2, 3),
   eff_window = c(1, 2, 3), 
-  accural_rate = c(1, 2, 3)
+  accural_rate = c(1, 2, 3, 6),
+  eff_complete = c(0.21, 0.31, 0.41)
 )
 all_config <- cbind(setting.idx = 1:nrow(all_config), all_config)
 
@@ -41,4 +44,4 @@ tab_settings <- read_csv("./results/output_settings.csv") %>%
 file_output <- list(
   settings = tab_settings, selection = tab_sel, EN = tab_EN
 )
-write.xlsx(file_output, file = "./results/0729summary.xlsx", asTable = TRUE)
+write.xlsx(file_output, file = "./results/0801summary.xlsx", asTable = TRUE)
