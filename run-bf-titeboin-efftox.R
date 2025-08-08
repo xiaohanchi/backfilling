@@ -7,6 +7,7 @@ library(bfboinet)
 library(filelock)
 library(tibble)
 # library(TITEgBOIN)
+source("../tite-boin12.R")
 
 ### Functions =======================
 patient.enrol <- function(n, rate, unit = "month", type = "poisson") {
@@ -627,7 +628,8 @@ run.bfboin <- function(target,
       dselect["MTD", trial] <- d_mtd
       
       ### Extended backfilling
-      Aset_ext <- seq_len(d_mtd)
+      Aset_ext <- if (d_mtd != 99) seq_len(d_mtd) else c()
+      
       prob_eff_ext <- pbeta(pE.low, (Yeff_s1[trial, Aset_ext] + prioreff * nprior), (n[Aset_ext] - Yeff_s1[trial, Aset_ext] + (1 - prioreff) * nprior))
       Aset_ext <- Aset_ext[n[Aset_ext] <= 3 | prob_eff_ext < cutoff.eff]
       # top 2 utility
@@ -810,6 +812,14 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     seed.sim = seed, n.sim = nsimu
     )
   
+  ### TITE-BOIN12
+  result_tite12 <- get.tite.boin12.approx(
+    pT.true = pT.true, pE.true = pE.true, rho = 0, targetT = 0.3, targetE = 0.25, 
+    ncohort = 10, cohortsize = 3, startdose = 1, accrual.rate = accuralrate, 
+    arrive.dist = "Exponential", event.dist = "Weibull", A = c(DLTwindow, effwindow), 
+    maxpen = 0.5, n.earlystop = 12, u11=60, u00=40, ntrial = nsimu, rseed = seed
+  )
+  
   
   ### BF-BOIN-ET
   result_bfet <- get.oc.backboinet(
@@ -824,7 +834,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
   # overdose N
   EN_overdose <- list(
     ours0 = rep(-1, 3), bf = rep(-1, 3), ours1 = rep(-1, 3), 
-    ours2 = rep(-1, 3), ours3 = rep(-1, 3), bfet = -1, titeet = -1
+    ours2 = rep(-1, 3), ours3 = rep(-1, 3), bfet = -1, titeet = -1, tite12 = -1
     )
   if (any(pT.true >= target)) {
     maxtol <- which(pT.true>=target) %>% min()
@@ -834,17 +844,16 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
       EN_overdose$ours1 <- rowSums(result_ours1$npatients[, (maxtol + 1):ndose])
       EN_overdose$ours2 <- rowSums(result_ours2$npatients[, (maxtol + 1):ndose])
       EN_overdose$ours3 <- rowSums(result_ours3$npatients[, (maxtol + 1):ndose])
-      EN_overdose$bfet <- sum(result_bfet$n.patient[(maxtol + 1):ndose])
-      EN_overdose$titeet <- sum(result_titeet$n.patient[(maxtol + 1):ndose])
     } else if (maxtol == (ndose - 1)) {
       EN_overdose$ours0 <- result_ours0$npatients[, (maxtol + 1):ndose]
       EN_overdose$bf <- result_bf$npatients[, (maxtol + 1):ndose]
       EN_overdose$ours1 <- result_ours1$npatients[, (maxtol + 1):ndose]
       EN_overdose$ours2 <- result_ours2$npatients[, (maxtol + 1):ndose]
       EN_overdose$ours3 <- result_ours3$npatients[, (maxtol + 1):ndose]
-      EN_overdose$bfet <- sum(result_bfet$n.patient[(maxtol + 1):ndose])
-      EN_overdose$titeet <- sum(result_titeet$n.patient[(maxtol + 1):ndose])
     }
+    EN_overdose$bfet <- sum(result_bfet$n.patient[(maxtol + 1):ndose])
+    EN_overdose$titeet <- sum(result_titeet$n.patient[(maxtol + 1):ndose])
+    EN_overdose$tite12 <- sum(result_tite12$pts[(maxtol + 1):ndose])
   }
   
   
@@ -867,6 +876,8 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     MTD.ours3 = c(result_ours3$sel_MTD, result_ours3$percentstop),
     OBD.ours3 = c(result_ours3$sel_OBD, NA),
     OBD.titeet = c(result_titeet$prop.select, result_titeet$prop.stop),
+    MTD.tite12 = c(result_tite12$sel_mtd, result_tite12$earlystop), 
+    OBD.tite12 = c(result_tite12$sel, NA), 
     OBD.bfet = c(result_bfet$prop.select, result_bfet$prop.stop)
   ) %>% round(2)
   colnames(selection) <- c(paste("Dose", 1:5), "early.stop")
@@ -883,6 +894,7 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     ours3 = cbind(result_ours3$npatients, result_ours3$totaln, EN_overdose$ours3, c(0, 0, result_ours3$totaltox)) %>%
       { rownames(.) <- c("ours3.s1", "ours3.s2", "ours3.total"); . },
     titeet = c(result_titeet$n.patient, sum(result_titeet$n.patient), EN_overdose$titeet, NA),
+    tite12 = c(result_tite12$pts, sum(result_tite12$pts), EN_overdose$tite12, NA),
     bfet = c(result_bfet$n.patient, result_bfet$totaln, EN_overdose$bfet, sum(result_bfet$n.tox.patient))
   )  %>% round(2)
   colnames(EN) <- c(paste("Dose", 1:5), "EN", "EN.Overdose", "DLT_pts")
@@ -893,7 +905,8 @@ MAIN.func <- function(target = 0.25, pT.true, pE.true,
     ours1 = c(result_ours1$duration[1], diff(result_ours1$duration), result_ours1$duration[2]),
     ours2 = c(result_ours2$duration[1], diff(result_ours2$duration), result_ours2$duration[2]),
     ours3 = c(result_ours3$duration[1], diff(result_ours3$duration), result_ours3$duration[2]),
-    titeet = result_titeet$duration/30,
+    titeet = result_titeet$duration/30, 
+    tite12 = result_tite12$duration, 
     bfet = result_bfet$duration
   )  %>% round(2)
   
@@ -930,7 +943,7 @@ pE.true <- rbind(
 )
 
 all_config <- expand.grid(
-  Scenarrio = 1:nrow(pT.true),
+  Scenario = 1:nrow(pT.true),
   DLT_window = c(1, 2, 3),
   eff_window = c(1, 2, 3), 
   accural_rate = c(1, 2, 3, 6),
@@ -939,8 +952,8 @@ all_config <- expand.grid(
 
 ### RUN code ========================
 output <- MAIN.func(
-  pT.true = pT.true[all_config$Scenarrio[sc00], ], 
-  pE.true = pE.true[all_config$Scenarrio[sc00], ], 
+  pT.true = pT.true[all_config$Scenario[sc00], ], 
+  pE.true = pE.true[all_config$Scenario[sc00], ], 
   accuralrate = all_config$accural_rate[sc00], 
   DLTwindow = all_config$DLT_window[sc00], 
   effwindow = all_config$eff_window[sc00], 
@@ -952,7 +965,7 @@ output$settings <- cbind(setting.idx = sc00, output$settings) %>%
   mutate(metric = c("True.Tox", "True.Eff", "True.Utility"), .after = 1)
 output$selection <- cbind(setting.idx = sc00, output$selection) %>% 
   as.data.frame() %>% tibble() %>% 
-  mutate(method = c("MTD.ours0", "OBD.ours0", "MTD.bf", "OBD.bf", "MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "MTD.ours3", "OBD.ours3", "OBD.titeet", "OBD.bfet"), .after = 1)
+  mutate(method = c("MTD.ours0", "OBD.ours0", "MTD.bf", "OBD.bf", "MTD.ours1", "OBD.ours1", "MTD.ours2", "OBD.ours2", "MTD.ours3", "OBD.ours3", "OBD.titeet", "MTD.tite12", "OBD.tite12", "OBD.bfet"), .after = 1)
 output$EN <- cbind(setting.idx = sc00, output$EN, duration = output$duration) %>% 
   as.data.frame() %>% tibble() %>% 
   mutate(method = c("ours0.s1", "ours0.s2", "ours0.total", "bf.s1", "bf.s2", "bf.total", "ours1.s1", "ours1.s2", "ours1.total", "ours2.s1", "ours2.s2", "ours2.total",  "ours3.s1", "ours3.s2", "ours3.total", "titeet", "bfet"), .after = 1)
